@@ -62,9 +62,7 @@ def make_label(glob_file, text_save_dir, label_save_dir, label_name):
     dir_, _ = os.path.split(text_save_dir)
     label_path = os.path.join(dir_, label_name)
 
-    # print("dir_ is ", dir_)
-    # print('label path is ', label_path)
-    with open(label_path, 'w') as f0:
+    with open(label_path, 'a') as f0:
         char_dict = make_dict()
         with open(glob_file, 'r') as f:
             lines = f.readlines()
@@ -72,9 +70,9 @@ def make_label(glob_file, text_save_dir, label_save_dir, label_name):
         for line in lines:
             txt.append(line)
         for i in range(len(txt)):
-            # print("{} th char {}".format(i, txt[i].rstrip('\n')))
+
             characters = txt[i].rstrip('\n')
-            # infor = txt[i].rstrip('\n')
+
             blank_del = characters.split(' ')
             filename = blank_del[0]
             print_txt = ''
@@ -83,22 +81,20 @@ def make_label(glob_file, text_save_dir, label_save_dir, label_name):
             label_path = os.path.join(label_save_dir, filename)
             for ii in range(len(blank_del)):
                 print_txt += blank_del[ii] + ' '
-            # print2 = blank_del
-            # print("save will", print_txt)
-            # print("save path is", txt_path + '.txt')
+
             with open(txt_path + '.txt', 'w') as f2:
                 f2.write(print_txt)
 
             load_txt = ''
             for i in range(len(print_txt)):
                 char = char_dict[print_txt[i]]
-                load_txt += str(char)+' '
+                load_txt += str(char) + ' '
             # print(load_txt)
             load_txt = load_txt[:-3]
-            with open(label_path+'.label', 'w') as f3:
+            with open(label_path + '.label', 'w') as f3:
                 f3.write(load_txt)
-            f0.write(filename+','+load_txt+'\n')
-            #print("")
+            f0.write(filename + ',' + load_txt + '\n')
+            # print("")
         # exit()
 
 
@@ -121,52 +117,71 @@ def make_dict():
             except:
                 char = ' '
             char_dict[char] = i
-    #print(char_dict)
     return char_dict
 
 
-def text_pre(glob_list, train_label):
-    # print("character dictionary is ", char_dict)
+def text_pre(glob_list, set_label):
     txt_dir = 'txt'
     vad_dir = 'vad'
     for i in range(len(glob_list)):
         dir_, filename = os.path.split(glob_list[i])
         dir_dir_, dir = os.path.split(dir_)
         dir_dir_dir_, dir_dir = os.path.split(dir_dir_)
-        print('filename {} dir {} dir_dir {} dir_dir_dir_ {}'.format(filename, dir, dir_dir,
-                                                                     dir_dir_dir_))  # .trans.txt, id, id, dir
+        # print('filename {} dir {} dir_dir {} dir_dir_dir_ {}'.format(filename, dir, dir_dir, dir_dir_dir_))  # .trans.txt, id, id, dir
 
         text_save_dir = os.path.join(dir_dir_dir_, txt_dir)
         if not os.path.exists(text_save_dir):
             os.makedirs(text_save_dir)
         label_save_dir = os.path.join(dir_dir_dir_, vad_dir)
-        make_label(glob_list[i], text_save_dir, label_save_dir, train_label)
+        make_label(glob_list[i], text_save_dir, label_save_dir, set_label)
+
+    all_wav = label_save_dir + '/*.wav'
+    all_label = label_save_dir + '/*.label'
+    
+    make_csv(all_wav, all_label)
 
 
+def make_csv(all_wav, all_label):
+    wav = sorted(glob(all_wav))
+    label = sorted(glob(all_label))
+    
+    dir_, _ = os.path.split(wav[0])
 
-def make_csv():
+    csv_path = os.path.join(dir_, 'data_list.csv')
 
+    # print("label length {} wav length {} csv_path {}".format(len(label), len(wav), csv_path))
+    with open(csv_path, 'w', newline='') as f:
+        if len(wav) == len(label):
+            for i in range(len(wav)):
+                _, w = os.path.split(wav[i])
+                _, l = os.path.split(label[i])                
+                save = w + ',' + l+'\n'
+                f.write(save)
+                print(save)
+    print('{} finished'.format(csv_path))
 
 
 all_train_flac = glob('/sdd_temp/junewoo10/LibriSpeech/train-clean-360/*/*/*.flac')
 all_train_txt = glob('/sdd_temp/junewoo10/LibriSpeech/train-clean-360/*/*/*.txt')
 train_label = 'train_label'
-# print(len(all_train_flac))
+
 text_pre(all_train_txt, train_label)
 # sox_and_vad(all_train_flac)
 
 all_valid_flac = glob('/sdd_temp/junewoo10/LibriSpeech/dev-clean/*/*/*.flac')
 all_valid_txt = glob('/sdd_temp/junewoo10/LibriSpeech/dev-clean/*/*/*.txt')
-# print(len(all_valid_flac))
+
 valid_label = 'valid_label'
 # sox_and_vad(all_valid_flac)
+text_pre(all_valid_txt, valid_label)
 
 all_test_flac = glob('/sdd_temp/junewoo10/LibriSpeech/test-clean/*/*/*.flac')
 all_test_txt = glob('/sdd_temp/junewoo10/LibriSpeech/test-clean/*/*/*.txt')
 test_label = 'test_label'
-# print(len(all_test_flac))
-# sox_and_vad(all_test_flac)
+# sox_and_vad(all_valid_flac)
+text_pre(all_test_txt, test_label)
 
+print('finished........')
 '''
 
 '''
