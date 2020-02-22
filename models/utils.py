@@ -65,6 +65,58 @@ class ScheduledOptim():
     def load_state_dict(self, state_dict):
         return self._optimizer.load_state_dict(state_dict)
 
+
+
+class ScheduledOptim_Jadore():
+    '''A simple wrapper class for learning rate scheduling
+    ref: https://github.com/jadore801120/attention-is-all-you-need-pytorch/blob/master/transformer/Optim.py
+    '''
+
+    def __init__(self, optimizer, init_lr, d_model, n_warmup_steps):
+        self._optimizer = optimizer
+        self.init_lr = init_lr
+        self.d_model = d_model
+        self.n_warmup_steps = n_warmup_steps
+        self.n_steps = 0
+
+
+    def step_and_update_lr(self):
+        "Step with the inner optimizer"
+        self._update_learning_rate()
+        self._optimizer.step()
+
+
+    def zero_grad(self):
+        "Zero out the gradients with the inner optimizer"
+        self._optimizer.zero_grad()
+
+
+    def _get_lr_scale(self):
+        d_model = self.d_model
+        n_steps, n_warmup_steps = self.n_steps, self.n_warmup_steps
+        return (d_model ** -0.5) * min(n_steps ** (-0.5), n_steps * n_warmup_steps ** (-1.5))
+
+
+    def _update_learning_rate(self):
+        ''' Learning rate scheduling per step '''
+
+        self.n_steps += 1
+        lr = self.init_lr * self._get_lr_scale()
+
+        for param_group in self._optimizer.param_groups:
+            param_group['lr'] = lr
+            
+    '''JH'''
+
+
+    def state_dict(self):
+        return self._optimizer.state_dict()
+    
+    def load_state_dict(self, state_dict):
+        return self._optimizer.load_state_dict(state_dict)
+
+
+
 class LabelSmoothingLoss(nn.Module):
     """
     ref: https://github.com/OpenNMT/OpenNMT-py/blob/e8622eb5c6117269bb3accd8eb6f66282b5e67d9/onmt/utils/loss.py#L186

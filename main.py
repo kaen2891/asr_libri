@@ -14,6 +14,8 @@ parser.add_argument('--epochs', type=int, default=200)
 parser.add_argument('--lr', type=float, default=0)
 parser.add_argument('--name', type=str, default='default')
 parser.add_argument('--file_num', type=int, default='0')
+parser.add_argument('--mode', type=str, default='JH')
+parser.add_argument('--warmup', type=int, default='4000')
 
 #parser.add_argument("--pause", type=int, default=0)
 from tensorboardX import SummaryWriter
@@ -229,16 +231,16 @@ import queue
 
 #from models.transformer import Model  # 2d mel style vgg
 from models.transformer_3d import Model # 3d CNN
-from models.utils import ScheduledOptim, LabelSmoothingLoss
+from models.utils import ScheduledOptim, LabelSmoothingLoss, ScheduledOptim_Jadore
 
-TRAIN_PATH = '/mnt/junewoo/dataset/LibriSpeech/train_clean360/'
-VALID_PATH = '/mnt/junewoo/dataset/LibriSpeech/val_clean/'
+TRAIN_PATH = '/sdd_temp/junewoo10/LibriSpeech/train-clean-360/'
+VALID_PATH = '/sdd_temp/junewoo10/LibriSpeech/dev-clean/'
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
 #char2index, index2char = label_loader.load_label("hackathon.labels")
-char2index, index2char = label_loader.load_label("/mnt/junewoo/dataset/LibriSpeech/librilabels")
+char2index, index2char = label_loader.load_label("/mnt2/junewoo4/asr/librispeech/asr_libri/librilabel")
 SOS_token = char2index['<s>']
 EOS_token = char2index['</s>']
 PAD_token = char2index['_']
@@ -257,7 +259,7 @@ teacher_forcing = True
 
 def split_dataset(train_wav_paths, train_script_paths, valid_wav_paths, vallid_script_paths, valid_ratio=0.00):
     train_loader_count = 3
-    records_num = len(wav_paths_1)
+    records_num = len(train_wav_paths)
     batch_num = math.ceil(records_num / batch_size)
 
     valid_batch_num = math.ceil(batch_num * valid_ratio)
@@ -301,10 +303,6 @@ def split_dataset(train_wav_paths, train_script_paths, valid_wav_paths, vallid_s
     return train_batch_num, train_dataset_list, valid_dataset
 
 
-
-
-
-
 print("len(char2index) is ", len(char2index))
 print('as same', char2index)
 #exit()
@@ -326,6 +324,11 @@ if lr == 0:
                 filter(lambda x: x.requires_grad, model.parameters()),
                 betas=(0.9, 0.98), eps=1e-09, weight_decay=1e-3),
                 d_model_size, 4000)
+
+if args.mode == 'Jadore':
+    optimizer = ScheduledOptim_Jadore(optim.Adam
+    (model.parameters(), betas=(0.9, 0.98), eps=1e-09), 2.0, d_model_size, args.warmup)
+
 
 #criterion = nn.CrossEntropyLoss(reduction='sum', ignore_index=PAD_token).to(device)
 #criterion = nn.NLLLoss(reduction='sum', ignore_index=PAD_token).to(device)
@@ -373,7 +376,7 @@ batch_num = math.ceil(records_num / batch_size)
 
 valid_dataset = BaseDataset(valid_wav_paths, valid_script_paths, SOS_token, EOS_token)
  '''
-save_dir = '/mnt/junewoo/workspace/librispeech_asr/MelStyle_model/model_dir/{}th_model'.format(args.file_num)
+save_dir = '/sdd_temp/junewoo10/model_dir/{}th_model'.format(args.file_num)
 if not os.path.exists(save_dir):
     os.makedirs(save_dir)
 print("save path is", save_dir)
@@ -399,7 +402,7 @@ for epoch in range(epochs):
     summary.add_scalar('eval_loss', eval_loss, epoch)
     summary.add_scalar('eval_cer', eval_cer, epoch)
     torch.save({
-            #'epoch': epoch,
+            'epoch': epoch,
             'model_state_dict': model.state_dict(),
             'optimizer_state_dict': optimizer.state_dict()
             #'loss': loss

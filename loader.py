@@ -37,7 +37,7 @@ FORMAT = "[%(asctime)s %(filename)s:%(lineno)s - %(funcName)s()] %(message)s"
 logging.basicConfig(stream=sys.stdout, level=logging.DEBUG, format=FORMAT)
 logger.setLevel(logging.INFO)
 
-PAD = 9
+PAD = 30
 #N_FFT = 512
 SAMPLE_RATE = 16000
 target_dict = dict() #now, val
