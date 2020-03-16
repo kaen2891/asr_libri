@@ -42,6 +42,7 @@ PAD = 30
 SAMPLE_RATE = 16000
 target_dict = dict() #now, val
 target_dict_val = dict() # nbio\\\\
+target_dict_other_val = dict() # nbio\\\\
 n_mels = 80
 N_FFT = 512
 
@@ -62,43 +63,78 @@ def load_targets_val(path):
         for no, line in enumerate(f):
             key, target = line.strip().split(',')
             target_dict_val[key] = target
+            
+def load_targets_other_val(path):
+    with open(path, 'r') as f:
+        for no, line in enumerate(f):
+            key, target = line.strip().split(',')
+            target_dict_other_val[key] = target
 
-def get_mel_feature(filepath):  #with power norm
-    y, fs = librosa.load(filepath, sr=SAMPLE_RATE)
-    
-    S = librosa.feature.melspectrogram(y=y, sr=SAMPLE_RATE, n_mels=n_mels, n_fft=win_length, hop_length=overlap)
-    mel_dim = len(S)
-    time = S.shape[-1]
-    
-    
-    ''' *** '''
-    ''' power normalization (mean=1) '''    
-    
-    for k in range(mel_dim):
-        dim = S[k]
-        dim_sum = dim.sum()
-        average_dim_for_time = dim_sum / time
-        normalize_dim = dim / average_dim_for_time
-        S[k] = normalize_dim
-    
-    
-    ''' *** '''
+
+def log_norm(spec):
     ''' log mel spectrogram normalization (mean=0) '''
-    '''
-    log_S = ma.log10(S)
+    
+    mel_dim = spec.shape[0]
+    time = spec.shape[-1]
+    log_S = ma.log10(spec)
     log_S = log_S.filled(0)
+    
     
     for k in range(mel_dim):
         dim = log_S[k]
         dim_sum = dim.sum()
         average_dim_for_time = dim_sum / time
         normalize_dim = dim - average_dim_for_time
-        S[k] = normalize_dim
-    '''
-    feat = torch.FloatTensor(S).transpose(0, 1)
+        
+        '''
+        if dim_sum == 0:
+            normalize_dim = np.array(dim.shape[0])
+        else:
+            normalize_dim = dim / average_dim_for_time
+        '''
+        spec[k] = normalize_dim
+    return spec
+
+def power_norm(spec):
+    #print("input spec shape is", np.shape(spec))
+    #exit()
+    #spec = np.squeeze(spec)
+    #mel_dim = len(spec)
+    mel_dim = spec.shape[0]
+    time = spec.shape[-1]
     
-    if feat.size(0) > 1024:
-        feat = feat[:1024, :]
+    for k in range(mel_dim):
+        dim = spec[k]
+        dim_sum = dim.sum()
+        average_dim_for_time = dim_sum / time
+        normalize_dim = dim / average_dim_for_time
+        '''
+        if dim_sum == 0:
+            normalize_dim = np.array(dim.shape[0])
+        else:
+            normalize_dim = dim / average_dim_for_time
+        '''
+        #print("mel_dim {} time {}".format(mel_dim, time))
+        #print("normalize_dim shape is", np.shape(normalize_dim))
+        spec[k] = normalize_dim
+        #print("k {} dim_sum {} average_dim_for_time {} ".format(k, dim_sum, average_dim_for_time))
+        #print("normalize_dim {}".format(normalize_dim))
+    #spec = np.expand_dims(spec, axis=0)
+    #exit()
+    return spec
+
+def get_mel_feature(filepath, norm):  #with power norm
+    y, fs = librosa.load(filepath, sr=SAMPLE_RATE)
+    
+    S = librosa.feature.melspectrogram(y=y, sr=SAMPLE_RATE, n_mels=n_mels, n_fft=win_length, hop_length=overlap)
+    
+    if norm == 0:
+        S = power_norm(S)
+    else:
+        S = log_norm(S)
+    #print("norm is", norm) 
+    feat = torch.FloatTensor(S).transpose(0, 1)
+    #feat = torch.FloatTensor(S)
     
     return feat
     
@@ -113,7 +149,7 @@ def get_script(filepath, bos_id, eos_id):
             result.append(int(tokens[i]))
     result.append(eos_id)
     return result
-    
+
 def get_script_val(filepath, bos_id, eos_id):
     key = filepath.split('/')[-1].split('.')[0]
     script = target_dict_val[key]
@@ -125,13 +161,25 @@ def get_script_val(filepath, bos_id, eos_id):
             result.append(int(tokens[i]))
     result.append(eos_id)
     return result
+    
+def get_script_other_val(filepath, bos_id, eos_id):
+    key = filepath.split('/')[-1].split('.')[0]
+    script = target_dict_other_val[key]
+    tokens = script.split(' ')
+    result = list()
+    result.append(bos_id)
+    for i in range(len(tokens)):
+        if len(tokens[i]) > 0:
+            result.append(int(tokens[i]))
+    result.append(eos_id)
+    return result
 
 class BaseDataset(Dataset):
-    def __init__(self, wav_paths, script_paths, bos_id=1307, eos_id=1308, train=False):
+    def __init__(self, wav_paths, script_paths, bos_id=1307, eos_id=1308, norm=0):
         self.wav_paths = wav_paths
         self.script_paths = script_paths
         self.bos_id, self.eos_id = bos_id, eos_id
-        self.train = train
+        self.norm = norm
     def __len__(self):
         return len(self.wav_paths)
 
@@ -139,21 +187,17 @@ class BaseDataset(Dataset):
         return len(self.wav_paths)
 
     def getitem(self, idx):
+        feat = get_mel_feature(self.wav_paths[idx], self.norm)
+        script = get_script(self.script_paths[idx], self.bos_id, self.eos_id)
         
-        if self.train:
-            feat = get_spectrogram_feature(self.wav_paths[idx], train=True)
-        else:
-            # use here "feat"
-            feat = get_mel_feature(self.wav_paths[idx])
-            script = get_script(self.script_paths[idx], self.bos_id, self.eos_id)
         return feat, script
 
 class BaseDatasetVal(Dataset):
-    def __init__(self, wav_paths, script_paths, bos_id=1307, eos_id=1308, train=False):
+    def __init__(self, wav_paths, script_paths, bos_id=1307, eos_id=1308, norm=0):
         self.wav_paths = wav_paths
         self.script_paths = script_paths
         self.bos_id, self.eos_id = bos_id, eos_id
-        self.train = train
+        self.norm = 0
     def __len__(self):
         return len(self.wav_paths)
 
@@ -161,13 +205,27 @@ class BaseDatasetVal(Dataset):
         return len(self.wav_paths)
 
     def getitem(self, idx):
+        feat = get_mel_feature(self.wav_paths[idx], self.norm)
+        script = get_script_val(self.script_paths[idx], self.bos_id, self.eos_id)
         
-        if self.train:
-            feat = get_spectrogram_feature(self.wav_paths[idx], train=True)
-        else:
-            # use here "feat"
-            feat = get_mel_feature(self.wav_paths[idx])
-            script = get_script_val(self.script_paths[idx], self.bos_id, self.eos_id)
+        return feat, script
+
+class BaseDatasetOtherVal(Dataset):
+    def __init__(self, wav_paths, script_paths, bos_id=1307, eos_id=1308, norm=0):
+        self.wav_paths = wav_paths
+        self.script_paths = script_paths
+        self.bos_id, self.eos_id = bos_id, eos_id
+        self.norm = 0
+    def __len__(self):
+        return len(self.wav_paths)
+
+    def count(self):
+        return len(self.wav_paths)
+
+    def getitem(self, idx):
+        feat = get_mel_feature(self.wav_paths[idx], self.norm)
+        script = get_script_other_val(self.script_paths[idx], self.bos_id, self.eos_id)
+        
         return feat, script
 
 def _collate_fn(batch):
@@ -190,12 +248,17 @@ def _collate_fn(batch):
     if max_seq_size % divide_num !=0:
         max_seq_size = ((max_seq_size//divide_num)+1)*divide_num
     
+    if max_seq_size < 480:
+        max_seq_size = 480
+        
+    #print("before, max_seq_size is", max_seq_size)
     max_target_size = len(max_target_sample)
     feat_size = max_seq_sample.size(1)
     batch_size = len(batch)
     
     seqs = torch.zeros(batch_size, max_seq_size, feat_size)
-    
+    #print("Seqs size", seqs.size())
+    #print("after, seqs", seqs)
     targets = torch.zeros(batch_size, max_target_size).to(torch.long)
     targets.fill_(PAD)
 

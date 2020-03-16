@@ -155,6 +155,77 @@ class Transformer(nn.Module):
         mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0))
         return mask
 
+class ResNet(nn.Module):
+    def __init__(self):
+        super(ResNet, self).__init__()
+        self.block1 = nn.Sequential(            
+            nn.Conv2d(1,64,kernel_size=(3,3), stride=(1,1)),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(64,64,kernel_size=(3,3), stride=(1,1)),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True)
+            )
+        self.block2 = nn.Sequential(            
+            nn.Conv2d(64,64,kernel_size=(3,3), stride=(1,1)),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(64,64,kernel_size=(3,3), stride=(1,1)),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True)
+            )
+        self.block3 = nn.Sequential(            
+            nn.Conv2d(64,64,kernel_size=(3,3), stride=(1,1)),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(64,64,kernel_size=(3,3), stride=(1,1)),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True)
+            )
+        self.block4 = nn.Sequential(            
+            nn.Conv2d(64,128,kernel_size=(3,3), stride=(1,1)),
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(128,128,kernel_size=(3,3), stride=(1,1)),
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True)
+            )
+        self.block5 = nn.Sequential(            
+            nn.Conv2d(128,128,kernel_size=(3,3), stride=(1,1)),
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(128,128,kernel_size=(3,3), stride=(1,1)),
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True)
+            )
+        self.block6 = nn.Sequential(            
+            nn.Conv2d(128,128,kernel_size=(3,3), stride=(1,1)),
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(128,128,kernel_size=(3,3), stride=(1,1)),
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True)
+            )
+        self.block7 = nn.Sequential(            
+            nn.Conv2d(128,128,kernel_size=(3,3), stride=(1,1)),
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(128,128,kernel_size=(3,3), stride=(1,1)),
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True)
+            )
+        self.pool = nn.MaxPool2d(kernel_size=(2,4), stride=(2,4))
+
+    def forward(self, x):
+        x = self.block1(x) + x[:,:,2:-2,2:-2]
+        x = self.block2(x) + x[:,:,2:-2,2:-2]
+        x = self.block3(x) + x[:,:,2:-2,2:-2]
+        x = self.block4(x)
+        x = self.block5(x) + x[:,:,2:-2,2:-2]
+        x = self.block6(x) + x[:,:,2:-2,2:-2]
+        x = self.block7(x) + x[:,:,2:-2,2:-2]
+        x = self.pool(x)
+        return x
 
 
 def initHidden(batch_size, bidirectional, hidden_size, num_layers, device, num_gpu):
@@ -186,8 +257,8 @@ def initHidden(batch_size, bidirectional, hidden_size, num_layers, device, num_g
 
 class Model(nn.Module):
     def __init__(self, vocab_len, sos_id, eos_id, d_model=512, nhead=8, num_encoder_layers=6, 
-                       num_decoder_layers=6, max_seq_len=None, enc_feedforward=2048, dec_feedforward=2048,
-                       dropout=0.1, max_length=600, padding_idx=0, mask_idx=0, device=None, n_gpu=None, num_lstm=6, filter=None):
+                       num_decoder_layers=6, max_seq_len=512, enc_feedforward=2048, dec_feedforward=2048,
+                       dropout=0.1, max_length=1024, padding_idx=0, mask_idx=0, device=None, n_gpu=None):
         super(Model, self).__init__()
         self.device = device
         self.sos_id = sos_id
@@ -199,115 +270,79 @@ class Model(nn.Module):
         self.num_encoder_layers = num_encoder_layers
         self.num_decoder_layers = num_decoder_layers
         self.n_gpu = n_gpu
-        self.d_model = d_model
-        self.num_lstm = num_lstm
-        self.filter = filter
+        
         
         #3d
                 
-        '''
         self.conv = nn.Sequential(
-            nn.Conv3d(1, 32, kernel_size=(1, 3, 3), stride=(1, 1, 1)), #64, 32, 16, T, 38 ==> T-2, 78
+            nn.Conv3d(1, 32, kernel_size=(1, 3, 3), stride=(1, 1, 1)), #64, 32, 16, T, 38 ==> 78
             #nn.Conv3d(1, 64, kernel_size=(), stridr=(), 
             nn.BatchNorm3d(32),
             nn.ReLU(inplace=True),
-            nn.Conv3d(32, 32, kernel_size=(1, 3, 3), stride=(1, 1, 1)), #64, 32, 16, T, 36 ==> T-4, 76
+            nn.Conv3d(32, 32, kernel_size=(1, 3, 3), stride=(1, 1, 1)), #64, 32, 16, T, 36 ==> 76
             nn.BatchNorm3d(32),
             nn.ReLU(inplace=True),
-            nn.MaxPool3d(kernel_size=(1, 1, 2), stride=(1, 1, 2)), #64, 32, 16, T, 18 ==> T-4, 38
+            nn.MaxPool3d(kernel_size=(1, 1, 2), stride=(1, 1, 2)), #64, 32, 16, T, 18 ==> 38
             nn.Dropout(0.3),
 
-            nn.Conv3d(32, 64, kernel_size=(1, 3, 3), stride=(1, 1, 1)), #64, 64, 16, T, 16 ==> T-6, 36
+            nn.Conv3d(32, 64, kernel_size=(1, 3, 3), stride=(1, 1, 1)), #64, 64, 16, T, 16 ==> 36
             nn.BatchNorm3d(64),
             nn.ReLU(inplace=True),
-            nn.Conv3d(64, 64, kernel_size=(1, 3, 3), stride=(1, 1, 1)), #64, 64, 16, T, 14 ==> T-8, 34
+            nn.Conv3d(64, 64, kernel_size=(1, 3, 3), stride=(1, 1, 1)), #64, 64, 16, T, 14 ==> 34
             nn.BatchNorm3d(64),
             nn.ReLU(inplace=True),
-            nn.Conv3d(64, 64, kernel_size=(1, 3, 3), stride=(1, 1, 1)), #64, 64, 16, T, 12 ==> T-10, 32
+            nn.Conv3d(64, 64, kernel_size=(1, 3, 3), stride=(1, 1, 1)), #64, 64, 16, T, 12 ==> 32
             nn.BatchNorm3d(64),
             nn.ReLU(inplace=True),
-            nn.MaxPool3d(kernel_size=(1, 1, 2), stride=(1, 1, 2)), #64, 64, 16, T, 6 ==> T-10, 16
+            nn.MaxPool3d(kernel_size=(1, 1, 2), stride=(1, 1, 2)), #64, 64, 16, T, 6 ==> 16
             nn.Dropout(0.3),
 
-            nn.Conv3d(64, 128, kernel_size=(1, 3, 3), stride=(1, 1, 1)), #64, 128, 16, T, 4 ==>  T-10, 14
+            nn.Conv3d(64, 128, kernel_size=(1, 3, 3), stride=(1, 1, 1)), #64, 128, 16, T, 4 ==>  14
             nn.BatchNorm3d(128),
             nn.ReLU(inplace=True),
-            nn.Conv3d(128, 128, kernel_size=(1, 3, 3), stride=(1, 1, 1)), #64, 128, 16, T, 2 ==> T-12, 12
+            nn.Conv3d(128, 128, kernel_size=(1, 3, 3), stride=(1, 1, 1)), #64, 128, 16, T, 2 ==> 12 
             nn.BatchNorm3d(128),
             nn.ReLU(inplace=True),
-            nn.MaxPool3d(kernel_size=(1, 2, 1), stride=(1, 2, 2)), #64, 128, 16, T, 2 ==> (T-12-2)/2 +1 ,6
+            nn.MaxPool3d(kernel_size=(1, 2, 1), stride=(1, 2, 2)), #64, 128, 16, T, 2 ==> 6
+            #nn.Dropout(0.3),
+        )
+        
+        
+        '''
+        #0310
+        self.conv = nn.Sequential(
+            nn.Conv3d(1, 32, kernel_size=(1, 3, 3), stride=(1, 1, 1)), #64, 32, 16, T, 38 ==> 78
+            #nn.Conv3d(1, 64, kernel_size=(), stridr=(), 
+            nn.BatchNorm3d(32),
+            nn.ReLU(inplace=True),
+            nn.Conv3d(32, 32, kernel_size=(1, 3, 3), stride=(1, 1, 1)), #64, 32, 16, T, 36 ==> 76
+            nn.BatchNorm3d(32),
+            nn.ReLU(inplace=True),
+            nn.MaxPool3d(kernel_size=(1, 2, 2), stride=(1, 2, 2)), #64, 32, 16, T, 18 ==> 38
+            nn.Dropout(0.3),
+
+            nn.Conv3d(32, 32, kernel_size=(1, 3, 3), stride=(1, 1, 1)), #64, 64, 16, T, 16 ==> 36
+            nn.BatchNorm3d(32),
+            nn.ReLU(inplace=True),
+            nn.Conv3d(32, 32, kernel_size=(1, 3, 3), stride=(1, 1, 1)), #64, 64, 16, T, 14 ==> 34
+            nn.BatchNorm3d(32),
+            nn.ReLU(inplace=True),
+            #nn.Conv3d(64, 64, kernel_size=(1, 3, 3), stride=(1, 1, 1)), #64, 64, 16, T, 12 ==> 32
+            #nn.BatchNorm3d(64),
+            #nn.ReLU(inplace=True),
+            nn.MaxPool3d(kernel_size=(1, 2, 2), stride=(1, 2, 2)), #64, 64, 16, T, 6 ==> 17
+            nn.Dropout(0.3)
+
+            #nn.Conv3d(64, 128, kernel_size=(1, 3, 3), stride=(1, 1, 1)), #64, 128, 16, T, 4 ==>  14
+            #nn.BatchNorm3d(128),
+            #nn.ReLU(inplace=True),
+            #nn.Conv3d(128, 128, kernel_size=(1, 3, 3), stride=(1, 1, 1)), #64, 128, 16, T, 2 ==> 12 
+            #nn.BatchNorm3d(128),
+            #nn.ReLU(inplace=True),
+            #nn.MaxPool3d(kernel_size=(1, 2, 1), stride=(1, 2, 2)), #64, 128, 16, T, 2 ==> 6
             #nn.Dropout(0.3),
         )
         '''
-        
-        
-        
-        #filter 64
-        if filter == 64:
-            self.conv = nn.Sequential(
-                nn.Conv3d(1, 32, kernel_size=(1, 3, 3), stride=(1, 1, 2)), #64, 32, 16, T, 38 ==> T-2, 39
-                #nn.Conv3d(1, 64, kernel_size=(), stridr=(), 
-                nn.BatchNorm3d(32),
-                nn.ReLU(inplace=True),
-                nn.Conv3d(32, 32, kernel_size=(1, 3, 3), stride=(1, 1, 2)), #64, 32, 16, T, 36 ==> T-4, 19
-                nn.BatchNorm3d(32),
-                nn.ReLU(inplace=True),
-                nn.MaxPool3d(kernel_size=(1, 2, 1), stride=(1, 2, 1)), #64, 32, 16, T, 18 ==> (T-6)/2 + 1,38
-                nn.Dropout(0.3),
-    
-                nn.Conv3d(32, 64, kernel_size=(1, 3, 3), stride=(1, 1, 2)), #64, 64, 16, T, 16 ==> (T-6)/2 -1, 9
-                nn.BatchNorm3d(64),
-                nn.ReLU(inplace=True),
-                nn.Conv3d(64, 64, kernel_size=(1, 3, 3), stride=(1, 1, 2)), #64, 64, 16, T, 14 ==> (T-6)/2 -3, 4
-                nn.BatchNorm3d(64),
-                nn.ReLU(inplace=True),
-                nn.MaxPool3d(kernel_size=(1, 2, 1), stride=(1, 2, 1)), #64, 64, 16, T, 6 ==> (((T-6)/2)-5)/2 + 1, 17
-                nn.Dropout(0.3)
-    
-                #nn.Conv3d(64, 128, kernel_size=(1, 3, 3), stride=(1, 1, 1)), #64, 128, 16, T, 4 ==>  14
-                #nn.BatchNorm3d(128),
-                #nn.ReLU(inplace=True),
-                #nn.Conv3d(128, 128, kernel_size=(1, 3, 3), stride=(1, 1, 1)), #64, 128, 16, T, 2 ==> 12 
-                #nn.BatchNorm3d(128),
-                #nn.ReLU(inplace=True),
-                #nn.MaxPool3d(kernel_size=(1, 2, 1), stride=(1, 2, 2)), #64, 128, 16, T, 2 ==> 6
-                #nn.Dropout(0.3),
-            )
-            print("Output CNN filter size is ", filter)
-        
-        else:
-        #filter 128
-            self.conv = nn.Sequential(
-                nn.Conv3d(1, 32, kernel_size=(1, 3, 3), stride=(1, 1, 2)), #64, 32, 16, T, 38 ==> T-2, 39
-                #nn.Conv3d(1, 64, kernel_size=(), stridr=(), 
-                nn.BatchNorm3d(32),
-                nn.ReLU(inplace=True),
-                nn.Conv3d(32, 32, kernel_size=(1, 3, 3), stride=(1, 1, 2)), #64, 32, 16, T, 36 ==> T-4, 19
-                nn.BatchNorm3d(32),
-                nn.ReLU(inplace=True),
-                nn.MaxPool3d(kernel_size=(1, 2, 1), stride=(1, 2, 1)), #64, 32, 16, T, 18 ==> (T-6)/2 + 1,38
-                nn.Dropout(0.3),
-    
-                nn.Conv3d(32, 64, kernel_size=(1, 3, 3), stride=(1, 1, 2)), #64, 64, 16, T, 16 ==> (T-6)/2 -1, 9
-                nn.BatchNorm3d(64),
-                nn.ReLU(inplace=True),
-                nn.Conv3d(64, 128, kernel_size=(1, 3, 3), stride=(1, 1, 2)), #64, 64, 16, T, 14 ==> (T-6)/2 -3, 4
-                nn.BatchNorm3d(128),
-                nn.ReLU(inplace=True),
-                nn.MaxPool3d(kernel_size=(1, 2, 1), stride=(1, 2, 1)), #64, 64, 16, T, 6 ==> (((T-6)/2)-5)/2 + 1, 4
-                nn.Dropout(0.3)
-    
-                #nn.Conv3d(64, 128, kernel_size=(1, 3, 3), stride=(1, 1, 1)), #64, 128, 16, T, 4 ==>  14
-                #nn.BatchNorm3d(128),
-                #nn.ReLU(inplace=True),
-                #nn.Conv3d(128, 128, kernel_size=(1, 3, 3), stride=(1, 1, 1)), #64, 128, 16, T, 2 ==> 12 
-                #nn.BatchNorm3d(128),
-                #nn.ReLU(inplace=True),
-                #nn.MaxPool3d(kernel_size=(1, 2, 1), stride=(1, 2, 2)), #64, 128, 16, T, 2 ==> 6
-                #nn.Dropout(0.3),
-            )
-            print("Output CNN filter size is ", filter)
-        
         
         
                
@@ -325,20 +360,24 @@ class Model(nn.Module):
         self.logsoftmax = nn.LogSoftmax(dim=-1)
         #self.RNN = nn.LSTM(512,512,2,bidirectional=True) # num_layer=2
         #self.LSTM = nn.LSTM(544,544,3,bidirectional=True) # num_layer=3
-        lstm_size = int(self.d_model/2)
-        print("lstm_size is {} and d_model is {} and num_lstm is {}".format(lstm_size, self.d_model, self.num_lstm))
-        self.LSTM = nn.LSTM(lstm_size,lstm_size,int(self.num_lstm),bidirectional=True) # num_layer=3
+        self.LSTM = nn.LSTM(768,768,6,bidirectional=True) # num_layer=3
         
 
 
     def forward(self, src, tgt, src_mask=None, tgt_mask=None, memory_mask=None,
                       src_key_padding_mask=None, tgt_key_padding_mask=None, memory_key_padding_mask=None, mode=None):
         batch_size = src.size(0)
-        
-        divide_num = 16        
+        #print("batch size is", batch_size)
+        #print("num gpus is", self.n_gpu)
+        divide_num = 16
+        src = src[:,:self.max_seq_len]
         src_sizes = src.size()
         src_list = list(src_sizes)
         src = src.view(src_sizes[0], divide_num, src_list[1]//divide_num, src_sizes[2]) # batch, 16, 3d_t, freq 
+        #print("before cnn, size = ", src.size())
+        tt = src.unsqueeze(1)
+        #print("tt size is", tt.size())
+        #exit()
         src = self.conv(src.unsqueeze(1))
         sizes = src.size() #18 64 16 13 17
         #print("shape is", sizes)
@@ -352,20 +391,23 @@ class Model(nn.Module):
         sizes = src.size()
         #print("after transpose, size = ", sizes)
         src = src.view(sizes[0], sizes[1], sizes[2] * sizes[3]) #3D, (batch, seq_len, size)
-        
         src = src.transpose(1, 0) #3D, (seq_len, batch, size)
-        self.LSTM.flatten_parameters()
-        hidden = initHidden(batch_size, True, sizes[2] * sizes[3], int(self.num_lstm), self.device, self.n_gpu)
+        #print("before BLSTM", src.size())
+        #exit()
+        #print("src shape is", src.size())
+        #print("before RNN", src.size())
+        #src_pos = torch.LongTensor(range(src.size(1))).to(self.device)
+        #src = src + self.enc_pos_enc(src_pos)
+        #RNN = self.RNN.flatten_parameters()
+        #hidden = initHidden(batch_size, True, sizes[2] * sizes[3], 3, self.device, self.n_gpu)
         
         #rnn = self.RNN.flatten_parameters()
         
         
-        src = self.LSTM(src, hidden)
-        #print("after LSTM, size is", np.shape(src))
-        src = src[0]
+        src = self.LSTM(src)
         
-        src = src.transpose(0, 1)
-        #print("after transpose, size is", np.shape(src)) 
+        src = src[0]
+        src = src.transpose(0, 1) 
         #print("after RNN, size is ", src.size())
         if mode == 'train':
             # Enhance Decoder's representation
@@ -393,7 +435,7 @@ class Model(nn.Module):
             memory = self.transformer.encoder(src.transpose(0,1), mask=src_mask, src_key_padding_mask=src_key_padding_mask)
             if tgt is None: # Inferenece
                 tgt = torch.LongTensor([[self.sos_id]]).to(self.device)
-                for di in range(self.max_length):
+                for di in range(100):
                     tgt_pos = torch.LongTensor(range(tgt.size(1))).to(self.device)
                     tgt_ = self.embedding(tgt) + self.dec_pos_enc(tgt_pos)
                     tgt_mask = self.transformer.generate_square_subsequent_mask(tgt.size(1)).to(self.device)
@@ -406,13 +448,6 @@ class Model(nn.Module):
                     symbols = torch.max(output, -1)[1][:,-1].unsqueeze(1)
                     tgt = torch.cat((tgt,symbols),1)
             else: # Evaluate
-                '''
-                print("here, evaluation")
-                print("tgt_mask is", tgt_mask)
-                print("memory_mask is", memory_mask)
-                print("tgt_key_padding_mask is", tgt_key_padding_mask)
-                print("memory_key_padding_mask is", memory_key_padding_mask)
-                '''
                 tgt_size = tgt.size(1)
                 tgt = tgt[:,0].unsqueeze(1)
                 for di in range(tgt_size):

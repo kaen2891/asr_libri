@@ -19,6 +19,8 @@ parser.add_argument('--d_model', type=int, default='512')
 parser.add_argument('--num_lstm', type=int, default='6')
 parser.add_argument('--warmup', type=int, default='4000')
 parser.add_argument('--norm', type=int, default='0')
+parser.add_argument('--filter', type=int, default='64')
+
 #parser.add_argument("--pause", type=int, default=0)
 from tensorboardX import SummaryWriter
 summary = SummaryWriter()
@@ -32,54 +34,6 @@ np.seterr(divide='ignore', invalid='ignore')
 from numpy import ma
 
 
-def log_norm(spec):
-    ''' log mel spectrogram normalization (mean=0) '''
-    
-    mel_dim = spec.shape[0]
-    time = spec.shape[-1]
-    log_S = ma.log10(spec)
-    log_S = log_S.filled(0)
-    
-    
-    for k in range(mel_dim):
-        dim = log_S[k]
-        dim_sum = dim.sum()
-        average_dim_for_time = dim_sum / time
-        normalize_dim = dim - average_dim_for_time
-        if dim_sum == 0:
-            normalize_dim = np.array(dim.shape[0])
-        else:
-            normalize_dim = dim / average_dim_for_time
-        spec[k] = normalize_dim
-    return spec
-
-def power_norm(spec):
-    #print("input spec shape is", np.shape(spec))
-    #exit()
-    #spec = np.squeeze(spec)
-    #mel_dim = len(spec)
-    mel_dim = spec.shape[0]
-    time = spec.shape[-1]
-    
-    for k in range(mel_dim):
-        dim = spec[k]
-        dim_sum = dim.sum()
-        average_dim_for_time = dim_sum / time
-        
-        if dim_sum == 0:
-            normalize_dim = np.array(dim.shape[0])
-        else:
-            normalize_dim = dim / average_dim_for_time
-        #print("mel_dim {} time {}".format(mel_dim, time))
-        #print("normalize_dim shape is", np.shape(normalize_dim))
-        spec[k] = normalize_dim
-        #print("k {} dim_sum {} average_dim_for_time {} ".format(k, dim_sum, average_dim_for_time))
-        #print("normalize_dim {}".format(normalize_dim))
-    #spec = np.expand_dims(spec, axis=0)
-    #exit()
-    return spec
-    
-
 def train(model, total_batch_size, queue, criterion, optimizer, device, train_begin, train_loader_count, print_batch=50, teacher_forcing_ratio=1):
     total_loss = 0.
     total_num = 0
@@ -87,7 +41,7 @@ def train(model, total_batch_size, queue, criterion, optimizer, device, train_be
     total_length = 0
     total_sent_num = 0
     batch = 0
-    vv = 0
+    #vv = 0
 
     model.train()
 
@@ -97,64 +51,24 @@ def train(model, total_batch_size, queue, criterion, optimizer, device, train_be
 
     while True:
         if queue.empty():
-            pass
+            pass 
             #print('queue is empty')
 
         feats, scripts, feat_lengths, script_lengths = queue.get()
         
-        new_feats = feats.numpy()
-        new_feats = np.transpose(new_feats, (0, 2, 1))    
+        
+        scripts = torch.cat([scripts,scripts,scripts], dim=0)
+        original = feats.numpy() # batch, t, 80
+        original = np.transpose(original, (0, 2, 1)) # batch, 80, t 
 
-        LB = spec_augment_pytorch.spec_augment(mel_spectrogram=new_feats, frequency_mask_num=1) #SpecAugment
-        LD = spec_augment_pytorch.spec_augment(mel_spectrogram=new_feats, frequency_mask_num=2) #SpecAugment
-        OG = new_feats #Original
-        
-        LB_list = []
-        LD_list = []
-        OG_list = []
-        for i in range(len(OG)):
-            LB_1 = LB[i]
-            LD_1 = LD[i]
-            OG_1 = OG[i]
-            if args.norm == 0: #power normalize
-                new_LB = power_norm(LB_1)
-                new_LD = power_norm(LD_1)
-                new_OG = power_norm(OG_1)
-            else:
-                new_LB = log_norm(LB_1)
-                new_LD = log_norm(LD_1)
-                new_OG = log_norm(OG_1)
-            
-            LB_list.append(new_LB)
-            LD_list.append(new_LD)
-            OG_list.append(new_OG)
-        #print("LB_list {} LD {} OG {}".format(np.shape(LB_list), np.shape(LD_list), np.shape(OG_list)))
-        #exit()
-        LB_list = np.asarray(LB_list)
-        LD_list = np.asarray(LD_list)
-        OG_list = np.asarray(OG_list)
-            
-        '''
-            mel_dim = len(S)
-        time = S.shape[-1]
-        
-        
-        
-        for k in range(mel_dim):
-            dim = S[k]
-            dim_sum = dim.sum()
-            average_dim_for_time = dim_sum / time
-            normalize_dim = dim / average_dim_for_time
-            S[k] = normalize_dim
-    
-        '''
-        
-        gathered = np.concatenate((OG_list, LB_list,LD_list), axis=0)
-        feats = np.transpose(gathered, (0, 2, 1))
-        vv += 1
-        print("batch = {}, LB_list {} LD_list {} OG_list {} final_feats {}".format(vv, np.shape(LB_list), np.shape(LD_list), np.shape(OG_list), np.shape(feats)))
+        LB = spec_augment_pytorch.spec_augment(mel_spectrogram=original, frequency_mask_num=1, time_mask_num=2) #SpecAugment
+        LD = spec_augment_pytorch.spec_augment(mel_spectrogram=original, frequency_mask_num=2, time_mask_num=2) #SpecAugment
+                
+        gathered = np.concatenate((original, LB, LD), axis=0) # batch x 3 , 80, t
+        feats = np.transpose(gathered, (0, 2, 1)) # batch x3, t, 80
         feats = torch.from_numpy(feats)
-        #print("final input features are ", feats.size())
+      
+        
         if feats.shape[0] == 0:
             # empty feats means closing one loader
             train_loader_count -= 1
@@ -166,14 +80,11 @@ def train(model, total_batch_size, queue, criterion, optimizer, device, train_be
             else:
                 continue
 
-        scripts = torch.cat([scripts,scripts,scripts], dim=0)        
+        #scripts = torch.cat([scripts,scripts,scripts], dim=0)        
         optimizer.zero_grad()
 
         feats = feats.to(device)
-        scripts = scripts.to(device)        
-        #print("feats shape", feats.size())
-        #print("scripts shape", scripts.size())
-        ############
+        scripts = scripts.to(device)
         # 
 
         src_len = scripts.size(1)
@@ -226,7 +137,7 @@ def train(model, total_batch_size, queue, criterion, optimizer, device, train_be
         batch += 1
         train.cumulative_batch_count += 1
 
-    #print('train() completed')
+    print('train() completed')
     return total_loss / total_num, total_dist / total_length
 
 train.cumulative_batch_count = 0
@@ -275,14 +186,17 @@ def get_distance(ref_labels, hyp_labels, display=False):
     return total_dist, total_length
 
 
-def evaluate(model, dataloader, queue, criterion, device):
+def evaluate(model, total_batch_size, dataloader, queue, criterion, device):
     #logger.info('evaluate() start')
     total_loss = 0.
     total_num = 0
     total_dist = 0
     total_length = 0
     total_sent_num = 0
-
+    print_batch = 10
+    batch = 0
+    
+    begin = epoch_begin = time.time()
     model.eval()
 
     with torch.no_grad():
@@ -311,6 +225,24 @@ def evaluate(model, dataloader, queue, criterion, device):
             total_dist += dist
             total_length += length
             total_sent_num += target.size(0)
+            
+            if batch % print_batch == 0:
+                current = time.time()
+                elapsed = current - begin
+                epoch_elapsed = (current - epoch_begin) / 60.0
+                train_elapsed = (current - train_begin) / 3600.0
+                
+                print('valid batch: {:4d}/{:4d}, finished, elapsed: {:.2f}s {:.2f}m {:.2f}h'
+                    .format(batch,
+                            total_batch_size,
+                            elapsed, epoch_elapsed, train_elapsed))
+                
+                #summary.add_scalar('train_loss', total_loss / total_num, train.cumulative_batch_count)
+                #summary.add_scalar('train_cer', total_dist / total_length, train.cumulative_batch_count)
+                begin = time.time()
+
+            
+            batch += 1
 
     #logger.info('evaluate() completed')
     return total_loss / total_num, total_dist / total_length
@@ -329,14 +261,16 @@ import queue
 from models.transformer_3d import Model # 3d CNN
 from models.utils import ScheduledOptim, LabelSmoothingLoss, ScheduledOptim_Jadore
 
-TRAIN_PATH = '/sdd_temp/junewoo10/LibriSpeech/train-clean-360/'
-VALID_PATH = '/sdd_temp/junewoo10/LibriSpeech/dev-clean/'
+TRAIN_PATH = '/data4/dataset/LibriSpeech/train-all-960/'
+VALID_CLEAN_PATH = '/data4/dataset/LibriSpeech/dev-clean/'
+VALID_OTHER_PATH = '/data4/dataset/LibriSpeech/dev-other/'
+
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
 #char2index, index2char = label_loader.load_label("hackathon.labels")
-char2index, index2char = label_loader.load_label("/mnt2/junewoo4/asr/librispeech/asr_libri/librilabel")
+char2index, index2char = label_loader.load_label("./librilabel")
 SOS_token = char2index['<s>']
 EOS_token = char2index['</s>']
 PAD_token = char2index['_']
@@ -353,13 +287,13 @@ epochs = args.epochs
 teacher_forcing = True
 ##############################################################
 
-def split_dataset(train_wav_paths, train_script_paths, valid_wav_paths, vallid_script_paths, valid_ratio=0.00):
+def split_dataset(train_wav_paths, train_script_paths, valid_wav_paths, vallid_script_paths, valid_other_wav_paths, vallid_other_script_paths,valid_ratio=0.00):
     train_loader_count = 3
     records_num = len(train_wav_paths)
     batch_num = math.ceil(records_num / batch_size)
 
-    valid_batch_num = math.ceil(batch_num * valid_ratio)
-    train_batch_num = batch_num - valid_batch_num
+    #valid_batch_num = math.ceil(batch_num * valid_ratio)
+    train_batch_num = batch_num# - valid_batch_num
 
     batch_num_per_train_loader = math.ceil(train_batch_num / 3)
 
@@ -379,24 +313,19 @@ def split_dataset(train_wav_paths, train_script_paths, valid_wav_paths, vallid_s
         train_dataset_list.append(BaseDataset(
             train_wav_paths[train_begin_raw_id:train_end_raw_id],
             train_script_paths[train_begin_raw_id:train_end_raw_id],
-            SOS_token, EOS_token))
+            SOS_token, EOS_token, args.norm))
         train_begin = train_end
 
-    valid_dataset = BaseDatasetVal(valid_wav_paths, vallid_script_paths, SOS_token, EOS_token)
-    # print("check Data length", check_Data)
-    # print("valid...")
-    # print("-----------------------")
-    '''
-    print('records_num', records_num)
-    print('batch_num', batch_num)
-    print('valid_batch_num', valid_batch_num)
-    print('train_batch_num', train_batch_num)
-    print('train_end', train_end)
-    print('batch_num_per_train_loader', batch_num_per_train_loader)
-    # exit()
-    '''
+    valid_dataset = BaseDatasetVal(valid_wav_paths, vallid_script_paths, SOS_token, EOS_token, args.norm)
+    valid_records_num = len(valid_wav_paths)
+    valid_batch_size = batch_size * 3
+    valid_batch_num = math.ceil(valid_records_num / valid_batch_size)
+    
+    valid_other_dataset = BaseDatasetOtherVal(valid_other_wav_paths, vallid_other_script_paths, SOS_token, EOS_token, args.norm)
+    valid_other_records_num = len(valid_other_wav_paths)
+    valid_other_batch_num = math.ceil(valid_other_records_num / valid_batch_size)
 
-    return train_batch_num, train_dataset_list, valid_dataset
+    return train_batch_num, train_dataset_list, valid_batch_num, valid_dataset, valid_other_batch_num, valid_other_dataset
 
 
 print("len(char2index) is ", len(char2index))
@@ -419,7 +348,7 @@ print("Let's use", num_gpu, "GPUs!")
 model = Model(len(char2index), SOS_token, EOS_token, d_model=d_model_size, nhead=8, max_seq_len=1024, 
                                                          num_encoder_layers=0, num_decoder_layers=6,
                                                          enc_feedforward=d_model_size*4, dec_feedforward=d_model_size*4,
-                                                         dropout=0.1, padding_idx=PAD_token, mask_idx=MASK_token, device=device, n_gpu=num_gpu, num_lstm=args.num_lstm)
+                                                         dropout=0.1, padding_idx=PAD_token, mask_idx=MASK_token, device=device, n_gpu=num_gpu, num_lstm=args.num_lstm, filter=args.filter)
 lr = args.lr
 #optimizer = optim.Adam(model.parameters(), lr=args.lr)
 optimizer = optim.Adam(model.parameters(), betas=(0.9, 0.999), eps=1e-08, weight_decay=1e-3, lr=args.lr)
@@ -448,20 +377,25 @@ if args.mode == 'Jadore':
 criterion = LabelSmoothingLoss(0.1, len(char2index), ignore_index=PAD_token).to(device)
 
 #**************************************************************************
-train_data_list = os.path.join(TRAIN_PATH, 'vad', 'data_list.csv')
-valid_data_list = os.path.join(VALID_PATH, 'vad', 'data_list.csv')
+train_data_list = os.path.join(TRAIN_PATH, 'all_file', 'data_list.csv')
+valid_data_list = os.path.join(VALID_CLEAN_PATH, 'all_file', 'data_list.csv')
+valid_other_list = os.path.join(VALID_OTHER_PATH, 'all_file', 'data_list.csv')
+
 train_wav_paths = list()
 train_script_paths = list()
 
 valid_wav_paths = list()
 valid_script_paths = list()
 
+valid_other_wav_paths = list()
+valid_other_script_paths = list()
+
 with open(train_data_list, 'r') as f:
     for line in f:
         # line: "aaa.wav,aaa.label"
         train_wav_path, train_script_path = line.strip().split(',')
-        train_wav_paths.append(os.path.join(TRAIN_PATH, 'vad', train_wav_path))
-        train_script_paths.append(os.path.join(TRAIN_PATH, 'vad', train_script_path))
+        train_wav_paths.append(os.path.join(TRAIN_PATH, 'all_file', train_wav_path))
+        train_script_paths.append(os.path.join(TRAIN_PATH, 'all_file', train_script_path))
 train_target_path = os.path.join(TRAIN_PATH, 'train_label')
 
 load_targets(train_target_path)
@@ -470,26 +404,28 @@ with open(valid_data_list, 'r') as f:
     for line in f:
         # line: "aaa.wav,aaa.label"
         valid_wav_path, valid_script_path = line.strip().split(',')
-        valid_wav_paths.append(os.path.join(VALID_PATH, 'vad', valid_wav_path))
-        valid_script_paths.append(os.path.join(VALID_PATH, 'vad', valid_script_path))
-valid_target_path = os.path.join(VALID_PATH, 'valid_label')
+        valid_wav_paths.append(os.path.join(VALID_CLEAN_PATH, 'all_file', valid_wav_path))
+        valid_script_paths.append(os.path.join(VALID_CLEAN_PATH, 'all_file', valid_script_path))
+valid_target_path = os.path.join(VALID_CLEAN_PATH, 'valid_clean_label')
+
+with open(valid_other_list, 'r') as f:
+    for line in f:
+        # line: "aaa.wav,aaa.label"
+        valid_other_wav_path, valid_other_script_path = line.strip().split(',')
+        valid_other_wav_paths.append(os.path.join(VALID_OTHER_PATH, 'all_file', valid_other_wav_path))
+        valid_other_script_paths.append(os.path.join(VALID_OTHER_PATH, 'all_file', valid_other_script_path))
+valid_other_target_path = os.path.join(VALID_OTHER_PATH, 'valid_other_label')
+
+
 
 load_targets_val(valid_target_path)
+load_targets_other_val(valid_other_target_path)
 
 #**************************************************************************
-train_batch_num, train_dataset_list, valid_dataset = split_dataset(train_wav_paths, train_script_paths, valid_wav_paths, valid_script_paths, valid_ratio=0.00)
+train_batch_num, train_dataset_list, valid_batch_num, valid_dataset, valid_other_batch_num, valid_other_dataset = split_dataset(train_wav_paths, train_script_paths, valid_wav_paths, valid_script_paths, valid_other_wav_paths, valid_other_script_paths, valid_ratio=0.00)
 
-'''
-train_dataset_list = list()
-for i in range(3):
-    train_dataset_list.append(BaseDataset(train_wav_paths, train_script_paths, SOS_token, EOS_token))
 
-records_num = len(train_wav_paths)
-batch_num = math.ceil(records_num / batch_size)
-
-valid_dataset = BaseDataset(valid_wav_paths, valid_script_paths, SOS_token, EOS_token)
- '''
-save_dir = '/sdd_temp/junewoo10/model_dir/{}th_model'.format(args.file_num)
+save_dir = './model_dir/{}th_model'.format(args.file_num)
 if not os.path.exists(save_dir):
     os.makedirs(save_dir)
 print("save path is", save_dir)
@@ -508,16 +444,30 @@ for epoch in range(epochs):
     
     train_loader.join()
     
+    print("valid-clean start")
     valid_queue = queue.Queue(3 * 2)
-    valid_loader = BaseDataLoader(valid_dataset, valid_queue, batch_size*3, 0)
+    valid_loader = BaseDataLoader(valid_dataset, valid_queue, batch_size * 3, 0)
+    #valid_loader = BaseDataLoader(valid_dataset, valid_queue, batch_size, 0)
     valid_loader.start()
-    
-        
 
-    eval_loss, eval_cer = evaluate(model, valid_loader, valid_queue, criterion, device)
-    print('Epoch %d (Evaluate) Loss %0.4f CER %0.4f' % (epoch, eval_loss, eval_cer))
-    summary.add_scalar('eval_loss', eval_loss, epoch)
-    summary.add_scalar('eval_cer', eval_cer, epoch)
+    eval_clean_loss, eval_clean_cer = evaluate(model, valid_batch_num, valid_loader, valid_queue, criterion, device)
+    print('Epoch %d (Valid-Clean) Loss %0.4f CER %0.4f' % (epoch, eval_clean_loss, eval_clean_cer))
+    valid_loader.join()
+    
+    print("valid-other start")
+    valid_other_queue = queue.Queue(3 * 2)
+    valid_other_loader = BaseDataLoader(valid_other_dataset, valid_other_queue, batch_size * 3, 0)
+    #valid_other_loader = BaseDataLoader(valid_other_dataset, valid_other_queue, batch_size, 0)
+    valid_other_loader.start()
+    
+    eval_other_loss, eval_other_cer = evaluate(model, valid_other_batch_num, valid_other_loader, valid_other_queue, criterion, device)
+    print('Epoch %d (Valid-Other) Loss %0.4f CER %0.4f' % (epoch, eval_other_loss, eval_other_cer))
+    
+    
+    summary.add_scalar('valid_clean_loss', eval_clean_loss, epoch)
+    summary.add_scalar('valid_clean_cer', eval_clean_cer, epoch)
+    summary.add_scalar('valid_other_loss', eval_other_loss, epoch)
+    summary.add_scalar('valid_other_cer', eval_other_cer, epoch)
     torch.save({
             'epoch': epoch,
             'model_state_dict': model.state_dict(),
@@ -526,4 +476,5 @@ for epoch in range(epochs):
             }, save_model)
     #torch.save(model.state_dict(), save_dir)
 
-    valid_loader.join()
+    
+    valid_other_loader.join()
